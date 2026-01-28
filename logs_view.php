@@ -176,7 +176,7 @@ $alle_logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <i class="fas fa-tools"></i> Makerspace
         </div>
         <nav class="sidebar-nav">
-            <a href="admin_dashboard_view.php" class="nav-link">
+            <a href="dashboard_admin_view.php" class="nav-link">
                 <i class="fas fa-home"></i> Dashboard
             </a>
             <a href="dashboard_admin_benutzer_view.php" class="nav-link">
