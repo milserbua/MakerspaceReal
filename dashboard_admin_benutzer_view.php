@@ -33,7 +33,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
     $vname = trim($_POST['vorname']); $nname = trim($_POST['nachname']);
     $user = trim($_POST['username']); $pass = $_POST['passwort'];
-    $role = $_POST['rolle']; $klasse = trim($_POST['klasse']);
+    $role = $_POST['rolle']; 
+    $klasse = trim($_POST['klasse']);
+
+    // Logik: Wenn Klasse "Lehrer" ist, Rolle automatisch auf Lehrer setzen
+    if (strtolower($klasse) === 'lehrer') {
+        $role = 'Lehrer';
+    }
+
     if (!empty($vname) && !empty($nname) && !empty($user) && !empty($pass)) {
         $hashedPass = password_hash($pass, PASSWORD_DEFAULT);
         $stmt = $pdo->prepare("INSERT INTO werkstattbenutzer (Vorname, Nachname, Username, Passwort, Rolle, Klasse) VALUES (?, ?, ?, ?, ?, ?)");
@@ -42,10 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Benutzer LÖSCHEN (Direkt aus der Zeile)
+// Benutzer LÖSCHEN
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_single') {
     $del_id = $_POST['delete_id'];
-    // Selbst-Löschen verhindern
     if ($del_id != $_SESSION['userid']) {
         $pdo->prepare("DELETE FROM werkstattbenutzer WHERE WerkBenutzerID = ?")->execute([$del_id]);
         $msg = "Benutzer erfolgreich gelöscht."; $msg_type = "success";
@@ -77,7 +83,6 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
 
         body { font-family: 'Roboto', sans-serif; background: var(--bg-color); color: var(--text-color); margin: 0; display: flex; height: 100vh; overflow: hidden; }
 
-        /* --- SIDEBAR --- */
         .sidebar { width: 260px; background-color: var(--sidebar-bg); color: #ecf0f1; display: flex; flex-direction: column; flex-shrink: 0; z-index: 10; }
         .sidebar-brand { height: 70px; display: flex; align-items: center; padding: 0 25px; font-size: 1.4rem; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid rgba(255,255,255,0.05); gap: 12px; }
         .sidebar-brand i { color: var(--primary-color); }
@@ -87,12 +92,10 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
         .nav-link:hover, .nav-link.active { background-color: #34495e; color: #fff; }
         .nav-link.active i { color: var(--primary-color); }
 
-        /* --- HAUPTBEREICH --- */
         .main-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
         .top-navbar { height: 70px; background-color: #fff; padding: 0 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.03); flex-shrink: 0; }
         .container { padding: 30px; }
 
-        /* --- TABELLE --- */
         .table-card { background: #fff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow: hidden; }
         table { width: 100%; border-collapse: collapse; }
         th { background: #f8f9fa; padding: 12px 20px; text-align: left; font-size: 0.8rem; color: #666; text-transform: uppercase; }
@@ -107,7 +110,6 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
         .action-btn { background: none; border: none; cursor: pointer; font-size: 1.1rem; transition: 0.2s; padding: 4px; }
         .action-btn:hover { opacity: 0.6; }
 
-        /* MODAL */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
         .modal-content { background: white; margin: 10% auto; padding: 25px; width: 380px; border-radius: 12px; }
     </style>
@@ -117,7 +119,7 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
     <aside class="sidebar">
         <div class="sidebar-brand"><i class="fas fa-tools"></i> Makerspace</div>
         <nav class="sidebar-nav">
-            <a href="admin_dashboard_view.php" class="nav-link"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="dashboard_admin_view.php" class="nav-link"><i class="fas fa-home"></i> Dashboard</a>
             <a href="dashboard_admin_benutzer_view.php" class="nav-link active"><i class="fas fa-users"></i> Benutzer</a>
             <a href="geraete_verwaltung.php" class="nav-link"><i class="fas fa-hammer"></i> Geräte</a>
             <a href="logs_view.php" class="nav-link"><i class="fas fa-shield-alt"></i> Logs</a>
@@ -147,8 +149,8 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
                         <input type="text" name="nachname" placeholder="Nachname" required style="padding:8px;">
                         <input type="text" name="username" placeholder="Benutzername" required style="padding:8px;">
                         <input type="password" name="passwort" placeholder="Passwort" required style="padding:8px;">
-                        <input type="text" name="klasse" placeholder="Klasse" style="padding:8px;">
-                        <select name="rolle" style="padding:8px;"><option>Mitglied</option><option>Admin</option></select>
+                        <input type="text" name="klasse" placeholder="Klasse (z.B. 3AHIT oder Lehrer)" style="padding:8px;">
+                        <select name="rolle" style="padding:8px;"><option>Mitglied</option><option>Admin</option><option>Lehrer</option></select>
                         <button type="submit" class="btn-toggle" style="background:var(--success); grid-column: span 3;">Speichern</button>
                     </div>
                 </form>
@@ -162,6 +164,7 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Klasse</th>
                             <th>Benutzername</th>
                             <th>Rolle</th>
                             <th>Schulungen</th>
@@ -172,6 +175,7 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
                         <?php foreach ($alle_mitglieder as $user): ?>
                         <tr class="user-row">
                             <td><strong><?php echo htmlspecialchars($user['Nachname']); ?></strong>, <?php echo htmlspecialchars($user['Vorname']); ?></td>
+                            <td><?php echo htmlspecialchars($user['Klasse']); ?></td>
                             <td style="color: #666; font-family: monospace;"><?php echo htmlspecialchars($user['Username']); ?></td>
                             <td><span class="badge badge-role" data-role="<?php echo htmlspecialchars($user['Rolle']); ?>"><?php echo htmlspecialchars($user['Rolle']); ?></span></td>
                             <td>
@@ -182,7 +186,6 @@ $alle_mitglieder = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachnam
                             </td>
                             <td style="text-align:right; white-space: nowrap;">
                                 <button class="action-btn" title="Schulungen" onclick="openModal(<?php echo $user['WerkBenutzerID']; ?>, '<?php echo addslashes($user['schulungen']); ?>', '<?php echo htmlspecialchars($user['Vorname'].' '.$user['Nachname']); ?>')">⚙️</button>
-                                
                                 <form method="POST" style="display:inline;" onsubmit="return confirm('Soll der Benutzer wirklich gelöscht werden?');">
                                     <input type="hidden" name="action" value="delete_single">
                                     <input type="hidden" name="delete_id" value="<?php echo $user['WerkBenutzerID']; ?>">
