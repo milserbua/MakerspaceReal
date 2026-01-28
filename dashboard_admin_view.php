@@ -335,7 +335,7 @@ if (!isset($_SESSION['userid']) || $_SESSION['role'] !== 'Admin') {
         <!-- Footer (Passend zur Login View) -->
         <footer class="main-footer">
             &copy; 2025 Makerspace Verwaltung<br>
-            <span class="credits">Dev: <span class="name">Clemens</span> & <span class="name">Karin</span></span>
+            <span class="credits">Dev: <span class="name">MakerspaceGroup</span>
         </footer>
 
     </main>

@@ -41,6 +41,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// NEU: Maschine BEARBEITEN
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_machine') {
+    $m_id = $_POST['edit_id'];
+    $bez  = trim($_POST['bezeichnung']);
+    $ber  = $_POST['bereich_id'];
+    $sch  = !empty($_POST['schulung_id']) ? $_POST['schulung_id'] : null;
+
+    $stmt = $pdo->prepare("UPDATE MaschinenImWerkstattbereich SET Bezeichnung = ?, WerkBereichID = ?, NotwendigeSchulungsID = ? WHERE MaschineID = ?");
+    if ($stmt->execute([$bez, $ber, $sch, $m_id])) {
+        $msg = "Änderungen erfolgreich gespeichert!";
+        $msg_type = "success";
+    } else {
+        $msg = "Fehler beim Aktualisieren.";
+        $msg_type = "error";
+    }
+}
+
 // B) Maschine LÖSCHEN
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_machine') {
     $del_id = $_POST['delete_id'];
@@ -81,7 +98,6 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Geräteverwaltung</title>
     
-    <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -251,6 +267,24 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
         }
         .btn-icon-small:hover { background: var(--danger); color: white; }
 
+        /* NEU: Bearbeiten Button Style */
+        .btn-icon-edit {
+            background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);
+            width: 32px; height: 32px; border-radius: 4px; cursor: pointer; margin-right: 5px;
+            display: inline-flex; align-items: center; justify-content: center; transition: 0.2s;
+        }
+        .btn-icon-edit:hover { background: var(--primary-color); color: white; }
+
+        /* MODAL STYLE */
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0; 
+            width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fff; margin: 10% auto; padding: 30px; 
+            border-radius: 12px; width: 400px; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
         /* FOOTER */
         .main-footer {
             background-color: #fff; border-top: 1px solid #eee; padding: 20px;
@@ -261,7 +295,6 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
 </head>
 <body>
 
-    <!-- SIDEBAR -->
     <aside class="sidebar">
         <div class="sidebar-brand">
             <i class="fas fa-tools"></i> Makerspace
@@ -273,7 +306,6 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
             <a href="dashboard_admin_benutzer_view.php" class="nav-link">
                 <i class="fas fa-users"></i> Benutzer
             </a>
-            <!-- WICHTIG: Active Class für Geräte -->
             <a href="geraete_verwaltung.php" class="nav-link active">
                 <i class="fas fa-hammer"></i> Geräte
             </a>
@@ -283,10 +315,8 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
         </nav>
     </aside>
 
-    <!-- MAIN CONTENT -->
     <main class="main-content">
         
-        <!-- TOP NAVBAR -->
         <nav class="top-navbar">
             <div class="page-title">Admin Dashboard &rsaquo; Geräteverwaltung</div>
             <div class="user-info">
@@ -295,10 +325,8 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
             </div>
         </nav>
 
-        <!-- CONTENT -->
         <div class="container">
 
-            <!-- FEEDBACK MSG -->
             <?php if ($msg): ?>
                 <div class="alert <?php echo $msg_type; ?>">
                     <i class="fas <?php echo ($msg_type == 'success') ? 'fa-check-circle' : 'fa-exclamation-circle'; ?>"></i>
@@ -306,14 +334,12 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
                 </div>
             <?php endif; ?>
 
-            <!-- ACTION BUTTON -->
             <div class="action-buttons">
                 <button class="btn-toggle" onclick="toggleAddForm()">
                     <i class="fas fa-plus"></i> Neue Maschine erfassen
                 </button>
             </div>
 
-            <!-- HINZUFÜGEN FORMULAR -->
             <div id="add-form-container" class="card" style="<?php echo $show_add_form ? 'display: block;' : ''; ?>">
                 <h3 class="form-title">Neue Maschine erfassen</h3>
                 <form action="" method="POST">
@@ -348,7 +374,6 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
                 </form>
             </div>
 
-            <!-- TABELLE -->
             <div class="card">
                 <table>
                     <thead>
@@ -378,6 +403,11 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
                                     <?php endif; ?>
                                 </td>
                                 <td style="text-align: right;">
+                                    <button class="btn-icon-edit" title="Bearbeiten" 
+                                            onclick='openEditModal(<?php echo json_encode($m); ?>)'>
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+
                                     <form method="POST" onsubmit="return confirm('Möchtest du <?php echo htmlspecialchars($m['Bezeichnung']); ?> wirklich löschen?');" style="display:inline;">
                                         <input type="hidden" name="action" value="delete_machine">
                                         <input type="hidden" name="delete_id" value="<?php echo $m['MaschineID']; ?>">
@@ -395,23 +425,72 @@ $schulungen = $pdo->query("SELECT * FROM Maschinenschulungen ORDER BY Bezeichnun
 
         </div>
 
-        <!-- FOOTER -->
         <footer class="main-footer">
             &copy; 2025 Makerspace Verwaltung<br>
-            <span class="credits">Dev: <span class="name">Dein Name</span> & <span class="name">Dein Name</span></span>
+            <span class="credits">Dev: <span class="name">MakerspaceGroup</span> 
         </footer>
 
     </main>
 
-    <!-- JS FÜR TOGGLE -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <h3 class="form-title">Gerät bearbeiten</h3>
+            <form action="" method="POST">
+                <input type="hidden" name="action" value="edit_machine">
+                <input type="hidden" name="edit_id" id="edit_id">
+                
+                <div style="margin-bottom:15px;">
+                    <label>Bezeichnung</label>
+                    <input type="text" name="bezeichnung" id="edit_bezeichnung" required>
+                </div>
+                
+                <div style="margin-bottom:15px;">
+                    <label>Standort (Bereich)</label>
+                    <select name="bereich_id" id="edit_bereich" required>
+                        <?php foreach ($bereiche as $b): ?>
+                            <option value="<?php echo $b['WerkBereichID']; ?>"><?php echo htmlspecialchars($b['Bezeichnung']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <label>Schulung</label>
+                    <select name="schulung_id" id="edit_schulung">
+                        <option value="">Keine (Freie Nutzung)</option>
+                        <?php foreach ($schulungen as $s): ?>
+                            <option value="<?php echo $s['MaschinenSchulungsID']; ?>"><?php echo htmlspecialchars($s['Bezeichnung']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn-submit">Speichern</button>
+                <button type="button" onclick="closeEditModal()" style="background:none; border:none; color:var(--text-muted); width:100%; margin-top:10px; cursor:pointer;">Abbrechen</button>
+            </form>
+        </div>
+    </div>
+
     <script>
         function toggleAddForm() {
             var form = document.getElementById('add-form-container');
-            if (form.style.display === 'none' || form.style.display === '') {
-                form.style.display = 'block';
-            } else {
-                form.style.display = 'none';
-            }
+            form.style.display = (form.style.display === 'none' || form.style.display === '') ? 'block' : 'none';
+        }
+
+        // Modal Funktionen
+        function openEditModal(machine) {
+            document.getElementById('edit_id').value = machine.MaschineID;
+            document.getElementById('edit_bezeichnung').value = machine.Bezeichnung;
+            document.getElementById('edit_bereich').value = machine.WerkBereichID;
+            document.getElementById('edit_schulung').value = machine.NotwendigeSchulungsID || "";
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        // Schließen wenn man außerhalb klickt
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('editModal')) closeEditModal();
         }
     </script>
 </body>
