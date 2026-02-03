@@ -6,7 +6,7 @@
     <title>Makerspace Login</title>
     
     <!-- Schriftarten & Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="Logo_htlinn.cubator.pdf" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
@@ -112,15 +112,12 @@
         
         <!-- HTL LOGO -->
         <div class="logo-container">
-            <a href="https://www.htl.tirol/standorte/htl-anichstrasse" target="_blank">
-                <img src="https://www.htl.tirol/fileadmin/_processed_/7/1/csm_Logo_HTL_Anichstrasse_cab5e6307c.png" alt="HTL Anichstraße" class="htl-logo">
+            <a href="/makerspace_final/Logo_htlinn.cubator-1.png" target="_blank">
+                <img src="Logo_htlinn.cubator-1.png" alt="HTL Anichstraße" class="htl-logo">
             </a>
         </div>
 
         <!-- Titel Bereich -->
-        <div class="icon-header">
-            <i class="fas fa-tools"></i>
-        </div>
         <h1>Login</h1>
         <p>Bitte anmelden</p>
 
@@ -152,8 +149,7 @@
 
         <!-- Footer -->
         <div class="footer-text">
-            &copy; 2025 Makerspace Verwaltung<br>
-            <span class="credits">Dev: <span class="name">Clemens Eismayr</span>
+            &copy; 2025 Makerspace<br>
         </div>
     </div>
 
