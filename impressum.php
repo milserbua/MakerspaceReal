@@ -198,10 +198,10 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
             <div class="card">
                 <h2>Impressum</h2>
                 
-                <h3>Angaben gemäß § 5 TMG</h3>
+                <h3>Angaben gemäß § 5 ECG</h3>
                 <p>
                     <strong>Makerspace HTL Anichstraße</strong><br>
-                    Anichstraße 40<br>
+                    Anichstraße 26-28<br>
                     6020 Innsbruck<br>
                     Österreich
                 </p>
@@ -214,8 +214,11 @@ $isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin');
 
                 <h3>Verantwortlich für den Inhalt</h3>
                 <p>
-                    Max Mustermann (Projektleiter)<br>
-                    HTL Anichstraße
+                    Karin Gratzel 
+                    <br>Leon Delmarco  
+                    <br>Clemens Eismayr  
+                    <br>Koray Erbas 
+                    <br>Noah Baumann<br>
                 </p>
 
                 <h3>Haftungsausschluss</h3>

@@ -2,361 +2,210 @@
 session_start();
 require 'db.php';
 
-// 1. SICHERHEITS-CHECK: Nur Admins
+// 1. SICHERHEITS-CHECK
 if (!isset($_SESSION['userid']) || $_SESSION['role'] !== 'Admin') {
     header("Location: login.php");
     exit;
 }
 
-// Variablen initialisieren
 $msg = "";
 $msg_type = ""; 
 $show_add_form = false;   
-$show_del_form = false;   
 
-// Alle verfügbaren Schulungen für das Formular laden
+// Schulungen für Dropdown laden
 $stmt_s = $pdo->query("SELECT * FROM maschinenschulungen ORDER BY Bezeichnung ASC");
 $verfuegbare_schulungen = $stmt_s->fetchAll(PDO::FETCH_ASSOC);
 
 // ---------------------------------------------------------
-// 2. LOGIK: DATEN VERARBEITEN
+// 2. LOGIK: DATEN VERARBEITEN (CREATE / UPDATE / DELETE)
 // ---------------------------------------------------------
 
-// A) HINZUFÜGEN
+// A) CREATE
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create') {
-    $vname  = trim($_POST['vorname']);
-    $nname  = trim($_POST['nachname']);
-    $user   = trim($_POST['username']);
-    $pass   = $_POST['passwort'];
-    $role   = $_POST['rolle'];
-    $klasse = trim($_POST['klasse']);
-    
-    // Array der ausgewählten Schulungs-IDs
-    $gewaehlte_schulungen = isset($_POST['schulungen']) ? $_POST['schulungen'] : [];
+    $vname = trim($_POST['vorname']); $nname = trim($_POST['nachname']);
+    $user = trim($_POST['username']); $pass = $_POST['passwort'];
+    $role = $_POST['rolle']; $klasse = trim($_POST['klasse']);
+    $gewaehlte_schulungen = $_POST['schulungen'] ?? [];
 
-    if (empty($vname) || empty($nname) || empty($user) || empty($pass)) {
-        $msg = "Bitte alle Pflichtfelder ausfüllen!";
-        $msg_type = "error";
-        $show_add_form = true; 
+    $check = $pdo->prepare("SELECT WerkBenutzerID FROM werkstattbenutzer WHERE Username = ?");
+    $check->execute([$user]);
+    if ($check->rowCount() > 0) {
+        $msg = "Username existiert bereits!"; $msg_type = "error"; $show_add_form = true;
     } else {
-        $check = $pdo->prepare("SELECT WerkBenutzerID FROM werkstattbenutzer WHERE Username = ?");
-        $check->execute([$user]);
-        if ($check->rowCount() > 0) {
-            $msg = "Dieser Benutzername ist bereits vergeben!";
-            $msg_type = "error";
-            $show_add_form = true;
-        } else {
-            $hashedPass = password_hash($pass, PASSWORD_DEFAULT);
-            
-            // 1. Benutzer anlegen
-            $stmt = $pdo->prepare("INSERT INTO werkstattbenutzer (Vorname, Nachname, Username, Passwort, Rolle, Klasse) VALUES (?, ?, ?, ?, ?, ?)");
-            if ($stmt->execute([$vname, $nname, $user, $hashedPass, $role, $klasse])) {
-                
-                // ID des neuen Users holen
-                $new_user_id = $pdo->lastInsertId();
-
-                // 2. Schulungen speichern
-                if (!empty($gewaehlte_schulungen)) {
-                    $sql_schulung = "INSERT INTO werkstattbenutzerschulungen (WerkBenutzerID, MaschinenSchulungsID, AbschlussDatum) VALUES (?, ?, CURDATE())";
-                    $stmt_schulung = $pdo->prepare($sql_schulung);
-                    
-                    foreach ($gewaehlte_schulungen as $schulungs_id) {
-                        $stmt_schulung->execute([$new_user_id, $schulungs_id]);
-                    }
-                }
-
-                // --- NEU: LOGBUCH EINTRAG (Erstellen) ---
-                $logText = "Admin hat Benutzer angelegt: $nname $vname ($user) [Rolle: $role]";
-                $stmtLog = $pdo->prepare("INSERT INTO SystemLogs (WerkBenutzerID, Ereignis) VALUES (?, ?)");
-                $stmtLog->execute([$_SESSION['userid'], $logText]);
-                // ----------------------------------------
-
-                $msg = "Benutzer '$user' erfolgreich angelegt (inkl. Schulungen)!";
-                $msg_type = "success";
-                $show_add_form = false; 
-            } else {
-                $msg = "Fehler beim Datenbank-Eintrag.";
-                $msg_type = "error";
-                $show_add_form = true;
+        $hashedPass = password_hash($pass, PASSWORD_DEFAULT);
+        $stmt = $pdo->prepare("INSERT INTO werkstattbenutzer (Vorname, Nachname, Username, Passwort, Rolle, Klasse) VALUES (?, ?, ?, ?, ?, ?)");
+        if ($stmt->execute([$vname, $nname, $user, $hashedPass, $role, $klasse])) {
+            $new_id = $pdo->lastInsertId();
+            if (!empty($gewaehlte_schulungen)) {
+                $stmt_s = $pdo->prepare("INSERT INTO werkstattbenutzerschulungen (WerkBenutzerID, MaschinenSchulungsID, AbschlussDatum) VALUES (?, ?, CURDATE())");
+                foreach ($gewaehlte_schulungen as $sid) $stmt_s->execute([$new_id, $sid]);
             }
-        }
+            $pdo->prepare("INSERT INTO SystemLogs (WerkBenutzerID, Ereignis) VALUES (?, ?)")->execute([$_SESSION['userid'], "Admin hat Benutzer angelegt: $nname $vname"]);
+            $msg = "Benutzer angelegt!"; $msg_type = "success";
+        } else { $msg = "Fehler."; $msg_type = "error"; }
     }
 }
 
-// B) LÖSCHEN
+// B) UPDATE
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update') {
+    $id = $_POST['edit_id']; $vname = trim($_POST['vorname']); $nname = trim($_POST['nachname']);
+    $user = trim($_POST['username']); $role = $_POST['rolle']; $klasse = trim($_POST['klasse']);
+    $gewaehlte_schulungen = $_POST['schulungen'] ?? [];
+
+    $sql = "UPDATE werkstattbenutzer SET Vorname=?, Nachname=?, Username=?, Rolle=?, Klasse=? WHERE WerkBenutzerID=?";
+    if ($pdo->prepare($sql)->execute([$vname, $nname, $user, $role, $klasse, $id])) {
+        $pdo->prepare("DELETE FROM werkstattbenutzerschulungen WHERE WerkBenutzerID = ?")->execute([$id]);
+        if (!empty($gewaehlte_schulungen)) {
+            $stmt_s = $pdo->prepare("INSERT INTO werkstattbenutzerschulungen (WerkBenutzerID, MaschinenSchulungsID, AbschlussDatum) VALUES (?, ?, CURDATE())");
+            foreach ($gewaehlte_schulungen as $sid) $stmt_s->execute([$id, $sid]);
+        }
+        $pdo->prepare("INSERT INTO SystemLogs (WerkBenutzerID, Ereignis) VALUES (?, ?)")->execute([$_SESSION['userid'], "Admin hat Benutzer bearbeitet: $nname $vname"]);
+        $msg = "Aktualisiert!"; $msg_type = "success";
+    }
+}
+
+// C) DELETE
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
     $del_id = $_POST['delete_id'];
-    
-    if ($del_id == $_SESSION['userid']) {
-        $msg = "Du kannst dich nicht selbst löschen!";
-        $msg_type = "error";
-        $show_del_form = true; 
-    } else {
-        // Daten vorher holen für das Logbuch
-        $check = $pdo->prepare("SELECT Username, Vorname, Nachname FROM werkstattbenutzer WHERE WerkBenutzerID = ?");
+    if ($del_id != $_SESSION['userid']) {
+        $check = $pdo->prepare("SELECT Username FROM werkstattbenutzer WHERE WerkBenutzerID = ?");
         $check->execute([$del_id]);
-        $userToDelete = $check->fetch(PDO::FETCH_ASSOC);
-
-        if ($userToDelete) {
-            // Erst Schulungen löschen
+        $u = $check->fetch();
+        if ($u) {
             $pdo->prepare("DELETE FROM werkstattbenutzerschulungen WHERE WerkBenutzerID = ?")->execute([$del_id]);
-            
-            // Dann User löschen
-            $stmt = $pdo->prepare("DELETE FROM werkstattbenutzer WHERE WerkBenutzerID = ?");
-            if ($stmt->execute([$del_id])) {
-                
-                // --- NEU: LOGBUCH EINTRAG (Löschen) ---
-                $geloeschterName = $userToDelete['Nachname'] . " " . $userToDelete['Vorname'] . " (" . $userToDelete['Username'] . ")";
-                $logText = "Admin hat Benutzer gelöscht: $geloeschterName";
-                $stmtLog = $pdo->prepare("INSERT INTO SystemLogs (WerkBenutzerID, Ereignis) VALUES (?, ?)");
-                $stmtLog->execute([$_SESSION['userid'], $logText]);
-                // --------------------------------------
-
-                $msg = "Benutzer '" . htmlspecialchars($userToDelete['Username']) . "' wurde gelöscht.";
-                $msg_type = "success";
-                $show_del_form = false;
-            } else {
-                $msg = "Fehler beim Löschen.";
-                $msg_type = "error";
-            }
-        } else {
-            $msg = "Benutzer nicht gefunden.";
-            $msg_type = "error";
+            $pdo->prepare("DELETE FROM werkstattbenutzer WHERE WerkBenutzerID = ?")->execute([$del_id]);
+            $pdo->prepare("INSERT INTO SystemLogs (WerkBenutzerID, Ereignis) VALUES (?, ?)")->execute([$_SESSION['userid'], "Admin löschte User: " . $u['Username']]);
+            $msg = "Gelöscht."; $msg_type = "success";
         }
     }
 }
 
 // ---------------------------------------------------------
-// 3. DATEN LADEN
+// 3. DATEN LADEN (PERFORMANTE SUCHE)
 // ---------------------------------------------------------
-$sql = "SELECT 
-            u.WerkBenutzerID, 
-            u.Vorname, 
-            u.Nachname, 
-            u.Username, 
-            u.Rolle, 
-            u.Klasse,
-            GROUP_CONCAT(s.Bezeichnung SEPARATOR ',') AS SchulungsListe
+
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$limit_clause = "";
+
+// Basis-Query
+$sql = "SELECT u.*, 
+        GROUP_CONCAT(bs.MaschinenSchulungsID) as SchulungsIDs, 
+        GROUP_CONCAT(s.Bezeichnung SEPARATOR ', ') as SchulungsNamen
         FROM werkstattbenutzer u
         LEFT JOIN werkstattbenutzerschulungen bs ON u.WerkBenutzerID = bs.WerkBenutzerID
-        LEFT JOIN maschinenschulungen s ON bs.MaschinenSchulungsID = s.MaschinenSchulungsID
-        GROUP BY u.WerkBenutzerID
-        ORDER BY u.Nachname ASC";
+        LEFT JOIN maschinenschulungen s ON bs.MaschinenSchulungsID = s.MaschinenSchulungsID";
 
-try {
-    $stmt = $pdo->query($sql);
-    $alle_mitglieder = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Exception $e) {
-    $msg = "DB-Fehler: " . $e->getMessage();
-    $msg_type = "error";
-    $stmt = $pdo->query("SELECT * FROM werkstattbenutzer ORDER BY Nachname ASC");
-    $alle_mitglieder = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Such-Logik
+if (!empty($search)) {
+    // Wenn gesucht wird: Filtern
+    $sql .= " WHERE u.Vorname LIKE :s OR u.Nachname LIKE :s OR u.Username LIKE :s OR u.Klasse LIKE :s OR u.Rolle LIKE :s";
+} else {
+    // Wenn NICHT gesucht wird: Nur die ersten 50 laden (Performance!)
+    $limit_clause = " LIMIT 50"; 
 }
+
+$sql .= " GROUP BY u.WerkBenutzerID ORDER BY u.Nachname ASC" . $limit_clause;
+
+$stmt = $pdo->prepare($sql);
+
+if (!empty($search)) {
+    $term = "%$search%";
+    $stmt->execute(['s' => $term]);
+} else {
+    $stmt->execute();
+}
+
+$alle_mitglieder = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Benutzerverwaltung</title>
-    
-    <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <style>
-        :root {
-            --primary-color: #4a90e2;
-            --primary-hover: #357abd;
-            --sidebar-bg: #2c3e50;
-            --sidebar-hover: #34495e;
-            --bg-color: #f4f7f6;
-            --text-color: #333;
-            --text-muted: #7f8c8d;
-            --danger: #e74c3c;
-            --success: #2ecc71;
-            --card-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            --border-radius: 12px;
-            --border-color: #e9ecef;
-        }
-
-        body {
-            font-family: 'Roboto', sans-serif;
-            margin: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            height: 100vh;
-            display: flex;
-            overflow: hidden;
-        }
-
-        /* --- SIDEBAR --- */
-        .sidebar {
-            width: 260px; background-color: var(--sidebar-bg); color: #ecf0f1;
-            display: flex; flex-direction: column; flex-shrink: 0;
-            box-shadow: 4px 0 15px rgba(0,0,0,0.05); z-index: 10;
-        }
+        :root { --primary-color: #4a90e2; --sidebar-bg: #2c3e50; --bg-color: #f4f7f6; --text-color: #333; --danger: #e74c3c; --success: #2ecc71; --border-radius: 12px; }
+        body { font-family: 'Roboto', sans-serif; margin: 0; background: var(--bg-color); color: var(--text-color); height: 100vh; display: flex; overflow: hidden; }
+        
+        .sidebar { width: 260px; background: var(--sidebar-bg); color: #ecf0f1; display: flex; flex-direction: column; flex-shrink: 0; }
         .sidebar-brand {
-            height: 70px; display: flex; align-items: center; padding: 0 25px;
-            font-size: 1.4rem; font-weight: 700; text-transform: uppercase;
-            border-bottom: 1px solid rgba(255,255,255,0.05); color: #fff; gap: 12px;
+            height: 70px;
+            display: flex;
+            align-items: center;
+            padding: 0 25px;
+            font-size: 1.4rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            color: #fff;
+            gap: 12px;
         }
+        
         .sidebar-brand i { color: var(--primary-color); }
         .sidebar-nav { flex: 1; padding: 20px 10px; overflow-y: auto; }
-        .nav-link {
-            display: flex; align-items: center; padding: 12px 20px;
-            color: #bdc3c7; text-decoration: none; transition: all 0.3s ease;
-            font-size: 0.95rem; border-radius: 8px; margin-bottom: 5px;
-        }
-        .nav-link i { width: 35px; font-size: 1.1rem; }
-        .nav-link:hover, .nav-link.active {
-            background-color: var(--sidebar-hover); color: #fff; transform: translateX(5px);
-        }
-        .nav-link:hover i, .nav-link.active i { color: var(--primary-color); }
-
-        /* --- MAIN CONTENT --- */
+        .nav-link { display: flex; align-items: center; padding: 12px 20px; color: #bdc3c7; text-decoration: none; border-radius: 8px; margin-bottom: 5px; transition: 0.3s; }
+        .nav-link:hover, .nav-link.active { background: #34495e; color: #fff; } .nav-link.active i { color: var(--primary-color); } .nav-link i { width: 35px; }
+        
         .main-content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
-        .top-navbar {
-            height: 70px; background-color: #fff; padding: 0 40px;
-            display: flex; justify-content: space-between; align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.03); flex-shrink: 0;
-        }
-        .page-title { color: var(--text-muted); font-weight: 500; }
-        .user-info { display: flex; align-items: center; gap: 20px; }
-        .btn-logout {
-            color: var(--danger); text-decoration: none; border: 1px solid rgba(231, 76, 60, 0.3);
-            padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 500;
-            transition: all 0.2s; display: flex; align-items: center; gap: 8px;
-        }
-        .btn-logout:hover { background: var(--danger); color: white; }
-
-        /* --- CONTAINER --- */
+        .top-navbar { height: 70px; background: #fff; padding: 0 40px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.03); flex-shrink: 0; }
+        .btn-logout { color: var(--danger); text-decoration: none; border: 1px solid rgba(231,76,60,0.3); padding: 6px 16px; border-radius: 20px; display: flex; gap: 8px; align-items: center; }
+        
         .container { max-width: 1400px; margin: 0 auto; padding: 40px; width: 100%; box-sizing: border-box; flex: 1; }
-
+        .alert { padding: 15px; border-radius: 6px; margin-bottom: 25px; color: white; display: flex; gap: 10px; align-items: center; }
+        .alert.success { background: var(--success); } .alert.error { background: var(--danger); }
+        
         .action-buttons { display: flex; gap: 15px; margin-bottom: 25px; }
-        .btn-toggle {
-            border: none; padding: 12px 24px; border-radius: 6px; font-size: 0.95rem; cursor: pointer; 
-            display: flex; align-items: center; gap: 10px; font-weight: 500; color: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.2s, opacity 0.2s;
-        }
-        .btn-toggle:hover { transform: translateY(-2px); opacity: 0.95; }
-        .btn-add { background-color: var(--primary-color); }
-        .btn-del { background-color: var(--danger); }
-
-        .alert {
-            padding: 15px; border-radius: 6px; margin-bottom: 25px; color: white; font-weight: 500;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 10px;
-        }
-        .alert.error { background-color: var(--danger); }
-        .alert.success { background-color: var(--success); }
-
-        .card {
-            background: #fff; border-radius: var(--border-radius);
-            box-shadow: var(--card-shadow); margin-bottom: 30px; overflow: hidden;
-            animation: slideDown 0.3s ease-out;
-        }
-        .collapsible-form { display: none; padding: 30px; border-left: 5px solid transparent; }
-        #add-form-container { border-left-color: var(--primary-color); }
-        #del-form-container { border-left-color: var(--danger); }
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .btn-toggle { border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 10px; color: white; }
+        .btn-add { background: var(--primary-color); }
         
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; align-items: end; }
+        .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 30px; }
+        .collapsible-form { display: none; padding: 30px; border-left: 5px solid var(--primary-color); }
+
+        .user-info { display: flex; align-items: center; gap: 20px; }
         
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; align-items: end; }
         .full-width { grid-column: 1 / -1; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; background: #fafafa; }
+        .checkbox-group { display: flex; gap: 10px; flex-wrap: wrap; background: #fafafa; padding: 10px; border-radius: 6px; border: 1px solid #eee; }
+        .checkbox-label { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 5px 10px; background: white; border: 1px solid #e0e0e0; border-radius: 4px; }
+        .btn-submit { color: white; border: none; padding: 11px 20px; border-radius: 6px; cursor: pointer; width: 100%; background: var(--success); }
+        
+        /* Suchfeld Styling */
+        .filter-bar { padding: 20px; border-bottom: 1px solid #eee; background: #fdfdfd; display: flex; gap: 10px;}
+        .search-input { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 1rem; }
+        .search-btn { background: var(--primary-color); color: white; border: none; padding: 0 25px; border-radius: 6px; cursor: pointer; font-weight: 500;}
+        .search-btn:hover { background: #357abd; }
 
-        label { display: block; margin-bottom: 8px; font-size: 0.85rem; color: #666; font-weight: 500; }
-        input[type="text"], input[type="password"], select {
-            width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px;
-            font-size: 0.95rem; box-sizing: border-box; transition: border 0.3s; outline: none; background: #fafafa;
-        }
-        input:focus, select:focus { border-color: var(--primary-color); background: #fff; }
-        .btn-submit {
-            color: white; border: none; padding: 11px 20px; border-radius: 6px; cursor: pointer;
-            font-weight: 600; width: 100%; transition: opacity 0.2s;
-        }
-        .btn-green { background: var(--success); }
-        .btn-red { background: var(--danger); }
-
-        .checkbox-group {
-            display: flex; gap: 10px; flex-wrap: wrap; background: #fafafa; padding: 10px; border-radius: 6px; border: 1px solid #eee;
-        }
-        .checkbox-label {
-            display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem; 
-            padding: 5px 10px; background: white; border-radius: 4px; border: 1px solid #e0e0e0; transition: 0.2s;
-        }
-        .checkbox-label:hover { border-color: var(--primary-color); }
-        .checkbox-label input { width: auto; margin: 0; }
-
-        /* TABLE */
-        .filter-bar {
-            padding: 20px; background: #fff; border-bottom: 1px solid var(--border-color);
-            display: flex; gap: 15px; flex-wrap: wrap; align-items: center;
-        }
-        .filter-input { flex: 1; min-width: 200px; }
-        .filter-select { width: auto; min-width: 150px; }
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th {
-            background: #f8f9fa; color: #6c757d; font-size: 0.8rem; text-transform: uppercase;
-            padding: 15px 20px; font-weight: 700; border-bottom: 2px solid var(--border-color);
-        }
-        td { padding: 15px 20px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
-        tr:last-child td { border-bottom: none; }
-        tr:hover { background-color: #fafafa; }
-
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8f9fa; padding: 15px 20px; color: #6c757d; font-size: 0.8rem; text-transform: uppercase; text-align: left; }
+        td { padding: 15px 20px; border-bottom: 1px solid #e9ecef; }
+        
         .badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
-        .role-admin { background: #fee2e2; color: #991b1b; }
-        .role-user { background: #d1fae5; color: #065f46; }
-        .role-manager { background: #fef3c7; color: #92400e; }
-
-        .badge-training {
-            background: #f3e8ff; color: #7e22ce; 
-            padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;
-            margin-right: 4px; margin-bottom: 3px; display: inline-block;
-            border: 1px solid #d8b4fe; font-weight: 500;
-        }
-
-        .btn-icon-small {
-            background: transparent; border: 1px solid var(--danger); color: var(--danger);
-            width: 32px; height: 32px; border-radius: 4px; cursor: pointer;
-            display: inline-flex; align-items: center; justify-content: center; transition: 0.2s;
-        }
-        .btn-icon-small:hover { background: var(--danger); color: white; }
-
-        .main-footer {
-            background-color: #fff; border-top: 1px solid #eee; padding: 20px;
-            text-align: center; color: #aaa; font-size: 0.8rem; margin-top: auto;
-        }
-        .credits .name { font-weight: 500; color: #999; }
+        .role-admin { background: #fee2e2; color: #991b1b; } .role-user { background: #d1fae5; color: #065f46; } .role-manager { background: #fef3c7; color: #92400e; }
+        .badge-training { background: #f3e8ff; color: #7e22ce; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; margin-right: 4px; display: inline-block; border: 1px solid #d8b4fe; }
+        
+        .btn-icon-small { background: transparent; border: 1px solid #ddd; width: 32px; height: 32px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; margin-left: 5px; }
+        .btn-edit { color: var(--primary-color); border-color: var(--primary-color); }
+        .btn-trash { color: var(--danger); border-color: var(--danger); }
     </style>
 </head>
 <body>
-
-    <!-- SIDEBAR -->
     <aside class="sidebar">
-        <div class="sidebar-brand">
-            <i class="fas fa-tools"></i> Makerspace
-        </div>
+        <div class="sidebar-brand"><i class="fas fa-tools"></i> Makerspace</div>
         <nav class="sidebar-nav">
-            <a href="dashboard_admin_view.php" class="nav-link">
-                <i class="fas fa-home"></i> Dashboard
-            </a>
-            <a href="dashboard_admin_benutzer_view.php" class="nav-link active">
-                <i class="fas fa-users"></i> Benutzer
-            </a>
-            <a href="geraete_verwaltung.php" class="nav-link">
-                <i class="fas fa-hammer"></i> Geräte
-            </a>
-            <a href="logs_view.php" class="nav-link">
-                <i class="fas fa-shield-alt"></i> Logs
-            </a>
+            <a href="dashboard_admin_view.php" class="nav-link"><i class="fas fa-home"></i> Dashboard</a>
+            <a href="dashboard_admin_benutzer_view.php" class="nav-link active"><i class="fas fa-users"></i> Benutzer</a>
+            <a href="geraete_verwaltung.php" class="nav-link"><i class="fas fa-hammer"></i> Geräte</a>
+            <a href="logs_view.php" class="nav-link"><i class="fas fa-shield-alt"></i> Logs</a>
         </nav>
     </aside>
 
-    <!-- MAIN -->
     <main class="main-content">
         <nav class="top-navbar">
-            <div class="page-title">Admin Dashboard &rsaquo; Benutzerverwaltung</div>
+            <div style="color:#7f8c8d;">Admin Dashboard &rsaquo; Benutzerverwaltung</div>
             <div class="user-info">
                 <span>Hallo, <strong><?php echo htmlspecialchars($_SESSION['username']); ?></strong></span>
                 <a href="logout.php" class="btn-logout"><i class="fas fa-sign-out-alt"></i> Abmelden</a>
@@ -364,220 +213,124 @@ try {
         </nav>
 
         <div class="container">
-            <?php if ($msg): ?>
-                <div class="alert <?php echo $msg_type; ?>">
-                    <i class="fas <?php echo ($msg_type == 'success') ? 'fa-check-circle' : 'fa-exclamation-circle'; ?>"></i>
-                    <?php echo htmlspecialchars($msg); ?>
-                </div>
-            <?php endif; ?>
+            <?php if ($msg): ?><div class="alert <?php echo $msg_type; ?>"><?php echo htmlspecialchars($msg); ?></div><?php endif; ?>
 
             <div class="action-buttons">
-                <button class="btn-toggle btn-add" onclick="toggleAddForm()">
+                <button class="btn-toggle btn-add" onclick="resetForm(); toggleAddForm();">
                     <i class="fas fa-plus"></i> Benutzer anlegen
                 </button>
-                <button class="btn-toggle btn-del" onclick="toggleDelForm()">
-                    <i class="fas fa-trash"></i> Benutzer löschen
-                </button>
             </div>
 
-            <!-- ADD FORM -->
+            <!-- FORMULAR -->
             <div id="add-form-container" class="card collapsible-form" style="<?php echo $show_add_form ? 'display: block;' : ''; ?>">
-                <h3 class="form-title">Neuen Benutzer anlegen</h3>
-                <form action="" method="POST">
-                    <input type="hidden" name="action" value="create">
+                <h3 style="margin-top:0;" id="form-title">Neuen Benutzer anlegen</h3>
+                <form action="" method="POST" id="userForm">
+                    <input type="hidden" name="action" id="form-action" value="create">
+                    <input type="hidden" name="edit_id" id="edit-id" value="">
+                    
                     <div class="form-grid">
-                        <div><label>Vorname</label><input type="text" name="vorname" placeholder="Max" required></div>
-                        <div><label>Nachname</label><input type="text" name="nachname" placeholder="Mustermann" required></div>
-                        <div><label>Klasse</label><input type="text" name="klasse" placeholder="z.B. 10A"></div>
-                        <div><label>Username</label><input type="text" name="username" placeholder="max.muster" required></div>
-                        <div><label>Passwort</label><input type="password" name="passwort" placeholder="******" required></div>
-                        <div>
-                            <label>Rolle</label>
-                            <select name="rolle">
-                                <option value="Mitglied">Mitglied</option>
-                                <option value="Raumbeauftragter">Raumbeauftragter</option>
-                                <option value="Admin">Admin</option>
-                            </select>
-                        </div>
-                        
-                        <!-- SCHULUNGEN CHECKBOXEN -->
-                        <div class="full-width">
-                            <label>Erhaltene Schulungen:</label>
-                            <div class="checkbox-group">
-                                <?php if (count($verfuegbare_schulungen) > 0): ?>
-                                    <?php foreach ($verfuegbare_schulungen as $s): ?>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="schulungen[]" value="<?php echo $s['MaschinenSchulungsID']; ?>">
-                                            <?php echo htmlspecialchars($s['Bezeichnung']); ?>
-                                        </label>
-                                    <?php endforeach; ?>
-                                <?php else: ?>
-                                    <span style="color:#999; font-size:0.9rem;">Keine Schulungen in der Datenbank gefunden.</span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-
-                        <div class="full-width">
-                            <button type="submit" class="btn-submit btn-green">Benutzer Speichern</button>
-                        </div>
+                        <div><label>Vorname</label><input type="text" name="vorname" id="f_vorname" required></div>
+                        <div><label>Nachname</label><input type="text" name="nachname" id="f_nachname" required></div>
+                        <div><label>Klasse</label><input type="text" name="klasse" id="f_klasse"></div>
+                        <div><label>Username</label><input type="text" name="username" id="f_username" required></div>
+                        <div id="pass-container"><label>Passwort <small>(Leer lassen bei Edit)</small></label><input type="password" name="passwort" id="f_passwort"></div>
+                        <div><label>Rolle</label><select name="rolle" id="f_rolle"><option value="Mitglied">Mitglied</option><option value="Raumbeauftragter">Raumbeauftragter</option><option value="Admin">Admin</option></select></div>
+                        <div class="full-width"><label>Schulungen:</label><div class="checkbox-group">
+                            <?php foreach ($verfuegbare_schulungen as $s): ?>
+                                <label class="checkbox-label"><input type="checkbox" name="schulungen[]" value="<?php echo $s['MaschinenSchulungsID']; ?>" class="chk-schulung"> <?php echo htmlspecialchars($s['Bezeichnung']); ?></label>
+                            <?php endforeach; ?>
+                        </div></div>
+                        <div class="full-width"><button type="submit" class="btn-submit" id="btn-save">Speichern</button></div>
                     </div>
                 </form>
             </div>
 
-            <!-- DEL FORM -->
-            <div id="del-form-container" class="card collapsible-form" style="<?php echo $show_del_form ? 'display: block;' : ''; ?>">
-                <h3 class="form-title" style="color: var(--danger);">Benutzer auswählen und löschen</h3>
-                <form action="" method="POST" onsubmit="return confirm('Sicher?');">
-                    <input type="hidden" name="action" value="delete">
-                    <div class="form-grid" style="grid-template-columns: 2fr 1fr;">
-                        <div>
-                            <label>Benutzer auswählen:</label>
-                            <select name="delete_id" required>
-                                <option value="" disabled selected>-- Bitte wählen --</option>
-                                <?php foreach ($alle_mitglieder as $user): ?>
-                                    <?php if ($user['WerkBenutzerID'] != $_SESSION['userid']): ?>
-                                        <option value="<?php echo $user['WerkBenutzerID']; ?>">
-                                            <?php echo htmlspecialchars($user['Nachname'] . ', ' . $user['Vorname'] . ' (' . $user['Username'] . ')'); ?>
-                                        </option>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div><button type="submit" class="btn-submit btn-red">Endgültig löschen</button></div>
-                    </div>
-                </form>
-            </div>
-
+            <!-- TABELLE MIT SERVER-SIDE SEARCH -->
             <div class="card">
-                <div class="filter-bar">
-                    <input type="text" id="searchInput" class="filter-input" placeholder="🔍 Suchen nach Name, Schulung oder Klasse..." onkeyup="filterTable()">
-                    <select id="roleFilter" class="filter-select" onchange="filterTable()">
-                        <option value="all">Alle Rollen</option>
-                        <option value="Mitglied">Mitglied</option>
-                        <option value="Raumbeauftragter">Raumbeauftragter</option>
-                        <option value="Admin">Admin</option>
-                    </select>
-                </div>
+                <!-- SUCHFORMULAR (Reset Button entfernt) -->
+                <form method="GET" class="filter-bar">
+                    <input type="text" name="search" class="search-input" 
+                           placeholder="🔍 Namen, Klasse oder Schulung suchen..." 
+                           value="<?php echo htmlspecialchars($search); ?>">
+                    <button type="submit" class="search-btn">Suchen</button>
+                </form>
 
                 <table id="userTable">
-                    <thead>
-                        <tr>
-                            <th width="5%">ID</th> 
-                            <th width="20%">Name</th> 
-                            <th width="10%">Klasse</th> 
-                            <th width="30%">Schulungen</th> 
-                            <th width="15%">Username</th> 
-                            <th width="10%">Rolle</th> 
-                            <th width="10%" style="text-align: right;">Aktion</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Name</th><th>Klasse</th><th>Schulungen</th><th>Username</th><th>Rolle</th><th style="text-align:right;">Aktion</th></tr></thead>
                     <tbody>
                         <?php if (count($alle_mitglieder) > 0): ?>
                             <?php foreach ($alle_mitglieder as $user): ?>
-                            <tr class="user-row">
-                                <td>#<?php echo htmlspecialchars($user['WerkBenutzerID']); ?></td>
-                                <td class="name-cell">
-    <strong><?php echo htmlspecialchars($user['Nachname']); ?></strong>
-    <?php 
-        // Zeige Komma und Vornamen nur an, wenn ein Vorname existiert
-        if (!empty($user['Vorname'])) {
-            echo ', ' . htmlspecialchars($user['Vorname']); 
-        }
-    ?>
-</td>
-                                <td class="klasse-cell"><?php echo htmlspecialchars($user['Klasse'] ?: '-'); ?></td>
-                                
-                                <td class="schulung-cell">
-                                    <?php 
-                                    if (!empty($user['SchulungsListe'])) {
-                                        $schulungen = explode(',', $user['SchulungsListe']);
-                                        foreach ($schulungen as $s) {
-                                            echo '<span class="badge-training">' . htmlspecialchars(trim($s)) . '</span>';
-                                        }
-                                    } else {
-                                        echo '<span style="color:#ccc; font-size:0.8rem; font-style:italic;">Keine</span>';
-                                    }
-                                    ?>
-                                </td>
-
-                                <td class="username-cell"><?php echo htmlspecialchars($user['Username']); ?></td>
+                            <tr>
+                                <td><strong><?php echo htmlspecialchars($user['Nachname']); ?></strong><?php if(!empty($user['Vorname'])) echo ', ' . htmlspecialchars($user['Vorname']); ?></td>
+                                <td><?php echo htmlspecialchars($user['Klasse'] ?: '-'); ?></td>
                                 <td>
-                                    <?php 
-                                        $r = $user['Rolle'];
-                                        $roleClass = 'role-user';
-                                        if (stripos($r, 'Admin') !== false) $roleClass = 'role-admin';
-                                        elseif (stripos($r, 'Raumbeauftragter') !== false) $roleClass = 'role-manager';
-                                    ?>
-                                    <span class="badge <?php echo $roleClass; ?>" data-role="<?php echo htmlspecialchars($r); ?>">
-                                        <?php echo htmlspecialchars($r); ?>
-                                    </span>
+                                    <?php if (!empty($user['SchulungsNamen'])) {
+                                        foreach (explode(',', $user['SchulungsNamen']) as $s) echo '<span class="badge-training">' . htmlspecialchars(trim($s)) . '</span>';
+                                    } else echo '<span style="color:#ccc;">Keine</span>'; ?>
                                 </td>
-                                <td style="text-align: right;">
+                                <td><?php echo htmlspecialchars($user['Username']); ?></td>
+                                <td><span class="badge <?php echo (stripos($user['Rolle'], 'Admin') !== false ? 'role-admin' : (stripos($user['Rolle'], 'Raum') !== false ? 'role-manager' : 'role-user')); ?>"><?php echo htmlspecialchars($user['Rolle']); ?></span></td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    <button type="button" class="btn-icon-small btn-edit" onclick='editUser(<?php echo json_encode($user); ?>)'><i class="fas fa-cog"></i></button>
                                     <?php if ($user['WerkBenutzerID'] != $_SESSION['userid']): ?>
-                                        <form method="POST" action="" style="display:inline;" onsubmit="return confirm('Wirklich löschen?');">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="delete_id" value="<?php echo $user['WerkBenutzerID']; ?>">
-                                            <button type="submit" class="btn-icon-small" title="Löschen"><i class="fas fa-trash"></i></button>
-                                        </form>
-                                    <?php else: ?>
-                                        <span style="font-size:0.8rem; color:#ccc;">(Du)</span>
+                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Löschen?');">
+                                        <input type="hidden" name="action" value="delete"><input type="hidden" name="delete_id" value="<?php echo $user['WerkBenutzerID']; ?>">
+                                        <button class="btn-icon-small btn-trash"><i class="fas fa-trash"></i></button>
+                                    </form>
                                     <?php endif; ?>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="7" style="text-align:center; padding: 40px; color: #999;">Keine Benutzer.</td></tr>
+                            <tr><td colspan="6" style="text-align:center; padding:40px; color:#999;">
+                                <?php echo !empty($search) ? "Keine Ergebnisse für '$search'" : "Keine Benutzer gefunden."; ?>
+                            </td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
+                
+                <?php if (empty($search)): ?>
+                    <div style="padding:15px; text-align:center; color:#999; font-size:0.85rem;">
+                        Zeige die ersten 50 Einträge. Nutze die Suche für mehr.
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
-
-        <footer class="main-footer">
-            &copy; 2025 Makerspace<br>
-        </footer>
     </main>
 
     <script>
         function toggleAddForm() {
-            var add = document.getElementById('add-form-container');
-            var del = document.getElementById('del-form-container');
-            del.style.display = 'none';
-            add.style.display = (add.style.display === 'none' || add.style.display === '') ? 'block' : 'none';
+            var form = document.getElementById('add-form-container');
+            form.style.display = (form.style.display === 'none' || form.style.display === '') ? 'block' : 'none';
         }
 
-        function toggleDelForm() {
-            var add = document.getElementById('add-form-container');
-            var del = document.getElementById('del-form-container');
-            add.style.display = 'none';
-            del.style.display = (del.style.display === 'none' || del.style.display === '') ? 'block' : 'none';
+        function resetForm() {
+            document.getElementById('userForm').reset();
+            document.getElementById('form-action').value = 'create';
+            document.getElementById('edit-id').value = '';
+            document.getElementById('form-title').innerText = 'Neuen Benutzer anlegen';
+            document.getElementById('btn-save').innerText = 'Speichern';
+            document.getElementById('f_passwort').required = true;
+            document.querySelectorAll('.chk-schulung').forEach(cb => cb.checked = false);
         }
 
-        function filterTable() {
-            var input = document.getElementById('searchInput');
-            var filter = input.value.toLowerCase();
-            var roleSelect = document.getElementById('roleFilter');
-            var roleFilter = roleSelect.value.toLowerCase();
-            
-            var table = document.getElementById('userTable');
-            var rows = table.getElementsByClassName('user-row');
-
-            for (var i = 0; i < rows.length; i++) {
-                var nameText = rows[i].querySelector('.name-cell').textContent.toLowerCase();
-                var userText = rows[i].querySelector('.username-cell').textContent.toLowerCase();
-                var klasseText = rows[i].querySelector('.klasse-cell').textContent.toLowerCase();
-                var schulungText = rows[i].querySelector('.schulung-cell').textContent.toLowerCase();
-                var roleText = rows[i].querySelector('.badge').getAttribute('data-role').toLowerCase();
-
-                var textMatch = (nameText.indexOf(filter) > -1) || 
-                                (userText.indexOf(filter) > -1) || 
-                                (klasseText.indexOf(filter) > -1) ||
-                                (schulungText.indexOf(filter) > -1);
-
-                var roleMatch = (roleFilter === 'all') || (roleText === roleFilter);
-
-                rows[i].style.display = (textMatch && roleMatch) ? "" : "none";
-            }
+        function editUser(user) {
+            document.getElementById('add-form-container').style.display = 'block';
+            window.scrollTo(0,0);
+            document.getElementById('form-action').value = 'update';
+            document.getElementById('edit-id').value = user.WerkBenutzerID;
+            document.getElementById('form-title').innerText = 'Benutzer bearbeiten';
+            document.getElementById('btn-save').innerText = 'Änderungen speichern';
+            document.getElementById('f_vorname').value = user.Vorname;
+            document.getElementById('f_nachname').value = user.Nachname;
+            document.getElementById('f_username').value = user.Username;
+            document.getElementById('f_klasse').value = user.Klasse;
+            document.getElementById('f_rolle').value = user.Rolle;
+            document.getElementById('f_passwort').required = false;
+            let ids = user.SchulungsIDs ? user.SchulungsIDs.toString().split(',') : [];
+            document.querySelectorAll('.chk-schulung').forEach(cb => {
+                cb.checked = ids.includes(cb.value);
+            });
         }
     </script>
 </body>
