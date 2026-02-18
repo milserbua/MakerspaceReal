@@ -263,7 +263,7 @@ if (!isset($_SESSION['userid']) || $_SESSION['role'] !== 'Admin') {
         
         <nav class="sidebar-nav">
             <!-- Active Class hier setzen -->
-            <a href="admin_dashboard_view.php" class="nav-link active">
+            <a href="dashboard_admin_view.php" class="nav-link active">
                 <i class="fas fa-home"></i> Dashboard
             </a>
             <a href="dashboard_admin_benutzer_view.php" class="nav-link">
@@ -334,8 +334,7 @@ if (!isset($_SESSION['userid']) || $_SESSION['role'] !== 'Admin') {
 
         <!-- Footer (Passend zur Login View) -->
         <footer class="main-footer">
-            &copy; 2025 Makerspace Verwaltung<br>
-            <span class="credits">Dev: <span class="name">MakerspaceGroup</span>
+            &copy; 2025 Makerspace<br>
         </footer>
 
     </main>
